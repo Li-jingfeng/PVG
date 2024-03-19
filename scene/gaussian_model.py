@@ -422,7 +422,7 @@ class GaussianModel:
 
         if self.contract:
             scale_factor = self._xyz.norm(dim=-1)*scene_extent-1 # -0
-            scale_factor = torch.where(scale_factor<=1, 1, scale_factor)/scene_extent
+            scale_factor = torch.where(scale_factor<=1, 1.0, scale_factor.double())/scene_extent
         else:
             scale_factor = torch.ones_like(self._xyz)[:,0]/scene_extent
 
@@ -500,7 +500,7 @@ class GaussianModel:
 
         if self.contract:
             scale_factor = self._xyz.norm(dim=-1)*scene_extent-1
-            scale_factor = torch.where(scale_factor<=1, 1, scale_factor)/scene_extent
+            scale_factor = torch.where(scale_factor<=1, 1.0, scale_factor.double())/scene_extent
         else:
             scale_factor = torch.ones_like(self._xyz)[:,0]/scene_extent
 
@@ -547,7 +547,7 @@ class GaussianModel:
 
         if self.contract:
             scale_factor = self._xyz.norm(dim=-1)*extent-1
-            scale_factor = torch.where(scale_factor<=1, 1, scale_factor)/extent
+            scale_factor = torch.where(scale_factor<=1, 1.0, scale_factor.double())/extent
         else:
             scale_factor = torch.ones_like(self._xyz)[:,0]/extent
 

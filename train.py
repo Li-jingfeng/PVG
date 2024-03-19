@@ -98,7 +98,7 @@ def training(args):
             time_shift = None
 
         render_pkg = render(viewpoint_cam, gaussians, args, background, env_map=env_map, other=other, time_shift=time_shift, is_training=True)
-
+        
         image = render_pkg["render"]
         depth = render_pkg["depth"]
         alpha = render_pkg["alpha"]
