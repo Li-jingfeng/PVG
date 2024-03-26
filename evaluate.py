@@ -21,6 +21,7 @@ from tqdm import tqdm
 from argparse import ArgumentParser
 from torchvision.utils import make_grid, save_image
 from omegaconf import OmegaConf
+import imageio
 
 EPS = 1e-5
 
@@ -48,11 +49,13 @@ def evaluation(iteration, scene : Scene, renderFunc, renderArgs, env_map=None):
             lpips_test = 0.0
             outdir = os.path.join(args.model_path, "eval", config['name'] + f"_{iteration}" + "_render")
             os.makedirs(outdir,exist_ok=True)
+            pred_video = []
+            pred_video_forward, pred_video_left, pred_video_right = [], [], []
             for idx, viewpoint in enumerate(tqdm(config['cameras'])):
                 render_pkg = renderFunc(viewpoint, scene.gaussians, *renderArgs, env_map=env_map)
                 image = torch.clamp(render_pkg["render"], 0.0, 1.0)
                 gt_image = torch.clamp(viewpoint.original_image.to("cuda"), 0.0, 1.0)
-
+                pred_video.append(image.detach().cpu())
                 depth = render_pkg['depth']
                 alpha = render_pkg['alpha']
                 sky_depth = 900
@@ -75,12 +78,19 @@ def evaluation(iteration, scene : Scene, renderFunc, renderArgs, env_map=None):
                 psnr_test += psnr(image, gt_image).double()
                 ssim_test += ssim(image, gt_image).double()
                 lpips_test += lpips(image, gt_image, net_type='vgg').double()  # very slow
-
+            pred_video_forward = pred_video[::3]
+            pred_video_left = pred_video[1::3]
+            pred_video_right = pred_video[2::3]
             psnr_test /= len(config['cameras'])
             l1_test /= len(config['cameras'])
             ssim_test /= len(config['cameras'])
             lpips_test /= len(config['cameras'])
 
+            # render video
+            imageio.mimwrite(os.path.join(outdir, 'video_rgb_pred_forward.mp4'), pred_video_forward, fps=10, quality=8)
+            imageio.mimwrite(os.path.join(outdir, 'video_rgb_pred_left.mp4'), pred_video_left, fps=10, quality=8)
+            imageio.mimwrite(os.path.join(outdir, 'video_rgb_pred_right.mp4'), pred_video_right, fps=10, quality=8)
+            # imageio.mimwrite(os.path.join(outdir, 'video_rgb_pred.mp4'), pred_video, fps=10, quality=8)
             print("\n[ITER {}] Evaluating {}: L1 {} PSNR {} SSIM {} LPIPS {}".format(iteration, config['name'], l1_test, psnr_test, ssim_test, lpips_test))
             with open(os.path.join(outdir, "metrics.json"), "w") as f:
                 json.dump({"split": config['name'], "iteration": iteration, "psnr": psnr_test.item(), "ssim": ssim_test.item(), "lpips": lpips_test.item()}, f)

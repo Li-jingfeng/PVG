@@ -252,7 +252,8 @@ def training(args):
             
             if iteration % args.scale_increase_interval == 0:
                 scene.upScale()
-
+            
+            os.remove(scene.scene_info.ply_path)
             if iteration in args.checkpoint_iterations:
                 print("\n[ITER {}] Saving Checkpoint".format(iteration))
                 torch.save((gaussians.capture(), iteration), scene.model_path + "/chkpnt" + str(iteration) + ".pth")

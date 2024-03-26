@@ -18,10 +18,12 @@ from scene.envlight import EnvLight
 from utils.camera_utils import cameraList_from_camInfos, camera_to_JSON
 from scene.waymo_loader import readWaymoInfo
 from scene.kittimot_loader import readKittiMotInfo
+from scene.kittidepth_loader import readKittiDepthInfo
 
 sceneLoadTypeCallbacks = {
     "Waymo": readWaymoInfo,
     "KittiMot": readKittiMotInfo,
+    "KittiDepth": readKittiDepthInfo,
 }
 
 class Scene:
@@ -50,7 +52,7 @@ class Scene:
         self.gaussians.time_duration = scene_info.time_duration
         print("time duration: ", scene_info.time_duration)
         print("frame interval: ", self.time_interval)
-
+        self.scene_info = scene_info
         if not self.loaded_iter:
             with open(scene_info.ply_path, 'rb') as src_file, open(os.path.join(self.model_path, "input.ply") , 'wb') as dest_file:
                 dest_file.write(src_file.read())

@@ -8,7 +8,8 @@ from tqdm import tqdm
 from PIL import Image
 from scene.scene_utils import CameraInfo, SceneInfo, getNerfppNorm, fetchPly, storePly
 from pathlib import Path
-camera_ls = [2, 3]
+# camera_ls = [2, 3]
+camera_ls = [2]
 
 """
 Most function brought from MARS
@@ -530,7 +531,7 @@ def readKittiMotInfo(args):
 
     selected_frames = [first_frame, last_frame]
     sequ_frames = selected_frames
-
+    
     cam_poses_tracking = get_camera_poses_tracking(
         poses_velo_w_tracking, tracking_calibration, sequ_frames, kitti_scene_no
     )
