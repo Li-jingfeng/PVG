@@ -24,6 +24,7 @@ from torchvision.utils import make_grid, save_image
 import numpy as np
 import kornia
 from omegaconf import OmegaConf
+import cv2
 try:
     from torch.utils.tensorboard import SummaryWriter
     TENSORBOARD_FOUND = True
@@ -257,7 +258,7 @@ def training(args):
                 print("\n[ITER {}] Saving Checkpoint".format(iteration))
                 torch.save((gaussians.capture(), iteration), scene.model_path + "/chkpnt" + str(iteration) + ".pth")
                 torch.save((env_map.capture(), iteration), scene.model_path + "/env_light_chkpnt" + str(iteration) + ".pth")
-
+    os.remove(scene.scene_info.ply_path)
 
 def complete_eval(tb_writer, iteration, test_iterations, scene : Scene, renderFunc, renderArgs, log_dict, env_map=None):
     from lpipsPyTorch import lpips
@@ -313,6 +314,9 @@ def complete_eval(tb_writer, iteration, test_iterations, scene : Scene, renderFu
                     grid = make_grid(grid, nrow=2)
 
                     save_image(grid, os.path.join(outdir, f"{viewpoint.colmap_id:03d}.png"))
+                    # saved images has some problems
+                    cv2.imwrite(os.path.join(outdir, f"only_rgb_{viewpoint.colmap_id:03d}.png"), (image.permute(1,2,0).detach().cpu().numpy()*255))
+                    cv2.imwrite(os.path.join(outdir, f"gt_rgb_{viewpoint.colmap_id:03d}.png"), (gt_image.permute(1,2,0).detach().cpu().numpy()*255))
 
                     l1_test += F.l1_loss(image, gt_image).double()
                     psnr_test += psnr(image, gt_image).double()

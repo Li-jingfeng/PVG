@@ -21,6 +21,8 @@ from tqdm import tqdm
 from argparse import ArgumentParser
 from torchvision.utils import make_grid, save_image
 from omegaconf import OmegaConf
+import imageio
+import numpy as np
 
 EPS = 1e-5
 
@@ -33,12 +35,17 @@ def evaluation(iteration, scene : Scene, renderFunc, renderArgs, env_map=None):
         # follow NSG: https://github.com/princeton-computational-imaging/neural-scene-graphs/blob/8d3d9ce9064ded8231a1374c3866f004a4a281f8/data_loader/load_kitti.py#L766
         num = len(scene.getTrainCameras())//2
         eval_train_frame = num//5
-        traincamera = sorted(scene.getTrainCameras(), key =lambda x: x.colmap_id)
+        # PVG's validation set, changed to all trained cameras
+        # validation_configs = ({'name': 'test', 'cameras': scene.getTestCameras(scale=scale)},
+        #                     {'name': 'train', 'cameras': traincamera[:num][-eval_train_frame:]+traincamera[num:][-eval_train_frame:]})
         validation_configs = ({'name': 'test', 'cameras': scene.getTestCameras(scale=scale)},
-                            {'name': 'train', 'cameras': traincamera[:num][-eval_train_frame:]+traincamera[num:][-eval_train_frame:]})
+                            {'name': 'train', 'cameras': scene.getTrainCameras()})
+        # kitti_mot only has 2 cameras(Left&Right)
+        num_images = int(len(config['cameras']) / 2)
     else:
         validation_configs = ({'name': 'test', 'cameras': scene.getTestCameras(scale=scale)},
                         {'name': 'train', 'cameras': scene.getTrainCameras()})
+        num_images = int(len(config['cameras']) / 3)
     
     for config in validation_configs:
         if config['cameras'] and len(config['cameras']) > 0:
@@ -46,12 +53,20 @@ def evaluation(iteration, scene : Scene, renderFunc, renderArgs, env_map=None):
             psnr_test = 0.0
             ssim_test = 0.0
             lpips_test = 0.0
+            # for kitti dataset
+            pred_video = []
+            if "kitti" in args.model_path:
+                pred_video_left, pred_video_right = [], []
+            else:
+                pred_video_forward, pred_video_left, pred_video_right = [], [], []
             outdir = os.path.join(args.model_path, "eval", config['name'] + f"_{iteration}" + "_render")
             os.makedirs(outdir,exist_ok=True)
             for idx, viewpoint in enumerate(tqdm(config['cameras'])):
                 render_pkg = renderFunc(viewpoint, scene.gaussians, *renderArgs, env_map=env_map)
                 image = torch.clamp(render_pkg["render"], 0.0, 1.0)
                 gt_image = torch.clamp(viewpoint.original_image.to("cuda"), 0.0, 1.0)
+                # get all images
+                pred_video.append(image.detach().cpu())
 
                 depth = render_pkg['depth']
                 alpha = render_pkg['alpha']
@@ -75,6 +90,21 @@ def evaluation(iteration, scene : Scene, renderFunc, renderArgs, env_map=None):
                 psnr_test += psnr(image, gt_image).double()
                 ssim_test += ssim(image, gt_image).double()
                 lpips_test += lpips(image, gt_image, net_type='vgg').double()  # very slow
+
+            pred_video = [np.transpose(img,(1,2,0)) for img in pred_video]
+            if "kitti" in args.model_path:
+                pred_video_left = pred_video[:num_images]
+                pred_video_right = pred_video[num_images:]
+                # render video
+                imageio.mimwrite(os.path.join(outdir, f'{config['name']}_video_rgb_pred_cam2.mp4'), pred_video_left, fps=5, quality=8)
+                imageio.mimwrite(os.path.join(outdir, f'{config['name']}_video_rgb_pred_cam3.mp4'), pred_video_right, fps=5, quality=8)
+            else:# waymo
+                pred_video_forward = pred_video[:num_images]
+                pred_video_left = pred_video[num_images:2*num_images]
+                pred_video_right = pred_video[2*num_images:]
+                imageio.mimwrite(os.path.join(outdir, f'{config['name']}_video_rgb_pred_forward.mp4'), pred_video_forward, fps=5, quality=8)
+                imageio.mimwrite(os.path.join(outdir, f'{config['name']}_video_rgb_pred_left.mp4'), pred_video_left, fps=5, quality=8)
+                imageio.mimwrite(os.path.join(outdir, f'{config['name']}_video_rgb_pred_right.mp4'), pred_video_right, fps=5, quality=8)
 
             psnr_test /= len(config['cameras'])
             l1_test /= len(config['cameras'])
@@ -130,4 +160,5 @@ if __name__ == "__main__":
     background = torch.tensor(bg_color, dtype=torch.float32, device="cuda")
     evaluation(first_iter, scene, render, (args, background), env_map=env_map)
 
+    os.remove(scene.scene_info.ply_path)
     print("Evaluation complete.")

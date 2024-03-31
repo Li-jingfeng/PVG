@@ -11,6 +11,67 @@ from pathlib import Path
 camera_ls = [2, 3]
 
 """
+Using monodepth initilization brought from Splatam
+"""
+def get_pointcloud(color, depth, intrinsics, w2c, transform_pts=True, 
+                   mask=None, compute_mean_sq_dist=False, mean_sq_dist_method="projective"):
+    width, height = color.shape[2], color.shape[1]
+    CX = intrinsics[0][2]
+    CY = intrinsics[1][2]
+    FX = intrinsics[0][0]
+    FY = intrinsics[1][1]
+
+    # Compute indices of pixels
+    x_grid, y_grid = np.meshgrid(np.arange(width).astype(np.float32), 
+                                    np.arange(height).astype(np.float32),
+                                    indexing='xy')
+    xx = (x_grid - CX)/FX
+    yy = (y_grid - CY)/FY
+    xx = xx.reshape(-1)
+    yy = yy.reshape(-1)
+    depth_z = depth[0].reshape(-1)
+    
+    # Initialize point cloud
+    pts_cam = np.stack((xx * depth_z, yy * depth_z, depth_z), axis=-1)
+    if transform_pts:
+        pix_ones = np.ones((height * width, 1)).astype(np.float32)
+        pts4 = np.concatenate((pts_cam, pix_ones), axis=1)
+        c2w = np.linalg.inv(w2c)
+        pts = (c2w @ pts4.T).T[:, :3]
+    else:
+        pts = pts_cam
+
+    # Compute mean squared distance for initializing the scale of the Gaussians
+    if compute_mean_sq_dist:
+        if mean_sq_dist_method == "projective":
+            # Projective Geometry (this is fast, farther -> larger radius)
+            scale_gaussian = depth_z / ((FX + FY)/2)
+            mean3_sq_dist = scale_gaussian**2
+        else:
+            raise ValueError(f"Unknown mean_sq_dist_method {mean_sq_dist_method}")
+    
+    # Colorize point cloud
+    cols = np.transpose(color, (1, 2, 0)).reshape(-1, 3) # (C, H, W) -> (H, W, C) -> (H * W, C)
+    point_cld = np.stack((pts, cols), axis=-1)
+
+    # Select points based on mask
+    length = len(mask)
+    num_ones = int(length/3)
+    random_mask = np.zeros_like(mask)
+    random_mask[:num_ones] = 1
+    np.random.shuffle(random_mask)
+    mask = random_mask
+    if mask is not None:
+        point_cld = point_cld[mask]
+        if compute_mean_sq_dist:
+            mean3_sq_dist = mean3_sq_dist[mask]
+
+    if compute_mean_sq_dist:
+        return point_cld, mean3_sq_dist
+    else:
+        return point_cld
+    
+"""
 Most function brought from MARS
 https://github.com/OPEN-AIR-SUN/mars/blob/69b9bf9d992e6b9f4027dfdc2a741c2a33eef174/mars/data/mars_kitti_dataparser.py
 """
@@ -420,12 +481,23 @@ def get_scene_images_tracking(tracking_path, sequence, selected_frames):
     [start_frame, end_frame] = selected_frames
     img_name = []
     sky_name = []
+    depth_name = []
 
     left_img_path = os.path.join(os.path.join(tracking_path, "image_02"), sequence)
     right_img_path = os.path.join(os.path.join(tracking_path, "image_03"), sequence)
 
     left_sky_path = os.path.join(os.path.join(tracking_path, "sky_02"), sequence)
     right_sky_path = os.path.join(os.path.join(tracking_path, "sky_03"), sequence)
+
+    left_depth_path = os.path.join(os.path.join(tracking_path, "depth_02"), sequence, "Lidar_DAnything_png")
+    right_depth_path = os.path.join(os.path.join(tracking_path, "depth_03"), sequence, "Lidar_DAnything_png")
+    
+    for frame_dir in [left_depth_path, right_depth_path]:
+        for frame_no in range(len(os.listdir(left_depth_path))):
+            if start_frame <= frame_no <= end_frame:
+                frame = sorted(os.listdir(left_depth_path))[frame_no]
+                fname = os.path.join(left_depth_path, frame)
+                depth_name.append(fname)
 
     for frame_dir in [left_img_path, right_img_path]:
         for frame_no in range(len(os.listdir(left_img_path))):
@@ -441,7 +513,7 @@ def get_scene_images_tracking(tracking_path, sequence, selected_frames):
                 fname = os.path.join(frame_dir, frame)
                 sky_name.append(fname)
 
-    return img_name, sky_name
+    return img_name, sky_name, depth_name
 
 def rotation_matrix(a, b):
     """Compute the rotation matrix that rotates vector a to vector b.
@@ -530,10 +602,16 @@ def readKittiMotInfo(args):
 
     selected_frames = [first_frame, last_frame]
     sequ_frames = selected_frames
-
-    cam_poses_tracking = get_camera_poses_tracking(
-        poses_velo_w_tracking, tracking_calibration, sequ_frames, kitti_scene_no
-    )
+    # GT pose
+    # cam_poses_tracking = get_camera_poses_tracking(
+    #     poses_velo_w_tracking, tracking_calibration, sequ_frames, kitti_scene_no
+    # )
+    # aligned poses
+    cam_poses_tracking_cam2 = np.loadtxt("/data/ljf/PVG/data/kitti_mot/training/depth_02/0001/aligned_poses_0001_cam2.txt").reshape(-1, 4, 4)[first_frame:last_frame+1]
+    cam_poses_tracking_cam3 = np.loadtxt("/data/ljf/PVG/data/kitti_mot/training/depth_02/0001/aligned_poses_0001_cam3.txt").reshape(-1, 4, 4)[first_frame:last_frame+1]
+    # cam_poses_tracking_cam3 = np.loadtxt("/data/ljf/PVG/data/kitti_mot/training/depth_02/0001/new_aligned_poses_0001_cam3.txt").reshape(-1, 4, 4)[first_frame:last_frame+1]
+    cam_poses_tracking = np.concatenate([cam_poses_tracking_cam2, cam_poses_tracking_cam3], axis=0)
+    # L2W
     poses_velo_w_tracking = poses_velo_w_tracking[first_frame:last_frame + 1]
 
     # Orients and centers the poses
@@ -549,7 +627,7 @@ def readKittiMotInfo(args):
     cam_poses_tracking = oriented.numpy()
     transform_matrix = transform_matrix.numpy()
 
-    image_filenames, sky_filenames = get_scene_images_tracking(
+    image_filenames, sky_filenames, depth_filenames = get_scene_images_tracking(
         tracking_path, scene_id, sequ_frames)
 
     # # Align Axis with vkitti axis
@@ -560,31 +638,55 @@ def readKittiMotInfo(args):
     image_height, image_width = test_load_image.shape[:2]
     cx, cy = image_width / 2.0, image_height / 2.0
     poses[..., :3, 3] *= scale_factor
+    # camera intrisinc for project depth to pointcloud 
+    intr = np.ones((3,3))
+    intr[0,0], intr[0,2] = focal_X, cx
+    intr[1,1], intr[1,2] = focal_Y, cy
 
     c2ws = poses
     for idx in tqdm(range(len(c2ws)), desc="Loading data"):
         c2w = c2ws[idx]
         w2c = np.linalg.inv(c2w)
         image_path = image_filenames[idx]
+        depth_path = depth_filenames[idx]
         image_name = os.path.basename(image_path)[:-4]
         sky_path = sky_filenames[idx]
         im_data = Image.open(image_path)
+        # read image got int8, can't be used as gt depth
+        # depth_data = cv2.imread(depth_filenames[idx], cv2.IMREAD_GRAYSCALE)
+        depth_data = np.load(depth_path).astype(np.float32)
         W, H = im_data.size
         image = np.array(im_data) / 255.
-
+        depth_data = np.expand_dims(depth_data, -1)
         sky_mask = cv2.imread(sky_path)
 
         timestamp = time_duration[0] + (time_duration[1] - time_duration[0]) * (idx % (len(c2ws) // 2)) / (len(c2ws) // 2 - 1)
         R = np.transpose(w2c[:3, :3])  # R is stored transposed due to 'glm' in CUDA code
         T = w2c[:3, 3]
-
+        # 使用单目估计深度图
         if idx < len(c2ws) / 2:
-            point = np.fromfile(os.path.join(tracking_path, "velodyne", scene_id, image_name + ".bin"), dtype=np.float32).reshape(-1, 4)
-            point_xyz = point[:, :3]
-            point_xyz_world = (np.pad(point_xyz, ((0, 0), (0, 1)), constant_values=1) @ poses_velo_w_tracking[idx].T)[:, :3]
+            color = np.transpose(image, (2, 0, 1)) # c h w
+            depth = np.transpose(depth_data, (2, 0, 1)) # c h w
+            # Get Initial Point Cloud (PyTorch CUDA Tensor)
+            mask = (depth > 0) # Mask out invalid depth values
+            mask = mask.reshape(-1)
+            point, mean3_sq_dist = get_pointcloud(color, depth, intr, w2c, 
+                                                mask=mask, compute_mean_sq_dist=True, 
+                                                mean_sq_dist_method="projective")
+            point_xyz = point[:, :3, 0]
+            color_xyz = point[:, :3, 1]
+            point_xyz_world = point_xyz
             points.append(point_xyz_world)
             point_time = np.full_like(point_xyz_world[:, :1], timestamp)
             points_time.append(point_time)
+        # 使用lidar真值
+        # if idx < len(c2ws) / 2:
+        #     point = np.fromfile(os.path.join(tracking_path, "velodyne", scene_id, image_name + ".bin"), dtype=np.float32).reshape(-1, 4)
+        #     point_xyz = point[:, :3]
+        #     point_xyz_world = (np.pad(point_xyz, ((0, 0), (0, 1)), constant_values=1) @ poses_velo_w_tracking[idx].T)[:, :3]
+        #     points.append(point_xyz_world)
+        #     point_time = np.full_like(point_xyz_world[:, :1], timestamp)
+        #     points_time.append(point_time)
         frame_num = len(c2ws) // 2
         point_xyz = points[idx%frame_num]
         point_camera = (np.pad(point_xyz, ((0, 0), (0, 1)), constant_values=1)@ transform_matrix.T @ w2c.T)[:, :3]*scale_factor
@@ -641,10 +743,11 @@ def readKittiMotInfo(args):
     if not os.path.exists(ply_path):
         rgbs = np.random.random((pointcloud.shape[0], 3))
         storePly(ply_path, pointcloud, rgbs, pointcloud_timestamp)
-    try:
         pcd = fetchPly(ply_path)
-    except:
-        pcd = None
+    # try:
+    #     pcd = fetchPly(ply_path)
+    # except:
+    #     pcd = None
 
     time_interval = (time_duration[1] - time_duration[0]) / (frame_num - 1)
 
