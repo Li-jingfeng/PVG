@@ -90,5 +90,5 @@ if __name__ == "__main__":
     bg_color = [1, 1, 1] if args.white_background else [0, 0, 0]
     background = torch.tensor(bg_color, dtype=torch.float32, device="cuda")
     separation(scene, render, (args, background), env_map=env_map)
-
+    os.remove(scene.scene_info.ply_path)
     print("\Rendering statics and dynamics complete.")

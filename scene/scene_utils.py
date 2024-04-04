@@ -23,6 +23,7 @@ class CameraInfo(NamedTuple):
     cx: float = None
     cy: float = None
     pointcloud_camera: np.array = None
+    depthmap: np.array = None # for fix project generated pc from depthmap get u,v not in image plane
 
 class SceneInfo(NamedTuple):
     point_cloud: BasicPointCloud

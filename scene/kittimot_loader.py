@@ -8,6 +8,7 @@ from tqdm import tqdm
 from PIL import Image
 from scene.scene_utils import CameraInfo, SceneInfo, getNerfppNorm, fetchPly, storePly
 from pathlib import Path
+import glob
 camera_ls = [2, 3]
 
 """
@@ -489,14 +490,20 @@ def get_scene_images_tracking(tracking_path, sequence, selected_frames):
     left_sky_path = os.path.join(os.path.join(tracking_path, "sky_02"), sequence)
     right_sky_path = os.path.join(os.path.join(tracking_path, "sky_03"), sequence)
 
-    left_depth_path = os.path.join(os.path.join(tracking_path, "depth_02"), sequence, "Lidar_DAnything_png")
-    right_depth_path = os.path.join(os.path.join(tracking_path, "depth_03"), sequence, "Lidar_DAnything_png")
+    # 对齐后的深度图.npy
+    # left_depth_path = os.path.join(os.path.join(tracking_path, "depth_02"), sequence, "Lidar_DAnything_png")
+    # right_depth_path = os.path.join(os.path.join(tracking_path, "depth_03"), sequence, "Lidar_DAnything_png")
+    # 没有对齐的深度图，结果经过处理
+    left_depth_path = os.path.join(os.path.join(tracking_path, "depth_02"), sequence, "DAnything", "disp_png")
+    right_depth_path = os.path.join(os.path.join(tracking_path, "depth_03"), sequence, "DAnything", "disp_png")
     
     for frame_dir in [left_depth_path, right_depth_path]:
-        for frame_no in range(len(os.listdir(left_depth_path))):
+        files_path = glob.glob(os.path.join(frame_dir, "*.npy"))
+        for frame_no in range(len(files_path)):
             if start_frame <= frame_no <= end_frame:
-                frame = sorted(os.listdir(left_depth_path))[frame_no]
-                fname = os.path.join(left_depth_path, frame)
+                frame = sorted(files_path)[frame_no]
+                fname = frame
+                # fname = os.path.join(frame_dir, frame)
                 depth_name.append(fname)
 
     for frame_dir in [left_img_path, right_img_path]:
@@ -575,6 +582,9 @@ def readKittiMotInfo(args):
     tracking_calibration = tracking_calib_from_txt(calibration_path)
     focal_X = tracking_calibration["P2"][0, 0]
     focal_Y = tracking_calibration["P2"][1, 1]
+    cx = tracking_calibration["P2"][0, 2]
+    cy = tracking_calibration["P2"][1, 2]
+
     poses_imu_w_tracking, _, _ = get_poses_calibration(basedir, oxts_path_tracking)  # (n_frames, 4, 4) imu pose
 
     tr_imu2velo = tracking_calibration["Tr_imu2velo"]
@@ -607,9 +617,10 @@ def readKittiMotInfo(args):
     #     poses_velo_w_tracking, tracking_calibration, sequ_frames, kitti_scene_no
     # )
     # aligned poses
-    cam_poses_tracking_cam2 = np.loadtxt("/data/ljf/PVG/data/kitti_mot/training/depth_02/0001/aligned_poses_0001_cam2.txt").reshape(-1, 4, 4)[first_frame:last_frame+1]
-    cam_poses_tracking_cam3 = np.loadtxt("/data/ljf/PVG/data/kitti_mot/training/depth_02/0001/aligned_poses_0001_cam3.txt").reshape(-1, 4, 4)[first_frame:last_frame+1]
-    # cam_poses_tracking_cam3 = np.loadtxt("/data/ljf/PVG/data/kitti_mot/training/depth_02/0001/new_aligned_poses_0001_cam3.txt").reshape(-1, 4, 4)[first_frame:last_frame+1]
+    if "kitti_mot" in args.source_path:
+        cam_poses_tracking_cam2 = np.loadtxt(f"/data/ljf/PVG/data/kitti_mot/training/depth_02/{scene_id}/aligned_poses_cam2.txt").reshape(-1, 4, 4)[first_frame:last_frame+1]
+        cam_poses_tracking_cam3 = np.loadtxt(f"/data/ljf/PVG/data/kitti_mot/training/depth_02/{scene_id}/aligned_poses_cam3.txt").reshape(-1, 4, 4)[first_frame:last_frame+1]
+        # cam_poses_tracking_cam3 = np.loadtxt("/data/ljf/PVG/data/kitti_mot/training/depth_02/0001/new_aligned_poses_0001_cam3.txt").reshape(-1, 4, 4)[first_frame:last_frame+1]
     cam_poses_tracking = np.concatenate([cam_poses_tracking_cam2, cam_poses_tracking_cam3], axis=0)
     # L2W
     poses_velo_w_tracking = poses_velo_w_tracking[first_frame:last_frame + 1]
@@ -636,10 +647,10 @@ def readKittiMotInfo(args):
 
     test_load_image = imageio.imread(image_filenames[0])
     image_height, image_width = test_load_image.shape[:2]
-    cx, cy = image_width / 2.0, image_height / 2.0
+    # cx, cy = image_width / 2.0, image_height / 2.0
     poses[..., :3, 3] *= scale_factor
     # camera intrisinc for project depth to pointcloud 
-    intr = np.ones((3,3))
+    intr = np.eye(3)
     intr[0,0], intr[0,2] = focal_X, cx
     intr[1,1], intr[1,2] = focal_Y, cy
 
@@ -690,6 +701,8 @@ def readKittiMotInfo(args):
         frame_num = len(c2ws) // 2
         point_xyz = points[idx%frame_num]
         point_camera = (np.pad(point_xyz, ((0, 0), (0, 1)), constant_values=1)@ transform_matrix.T @ w2c.T)[:, :3]*scale_factor
+        # point_camera = (np.pad(point_xyz, ((0, 0), (0, 1)), constant_values=1) @ w2c.T)[:, :3]*scale_factor # 去掉transform_matrix可以让单目深度图lidar监督有用，但是结果差
+
 
         cam_infos.append(CameraInfo(uid=idx, R=R, T=T,
                                     image=image,

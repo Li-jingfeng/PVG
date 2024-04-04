@@ -23,6 +23,10 @@ from torchvision.utils import make_grid, save_image
 from omegaconf import OmegaConf
 import imageio
 import numpy as np
+from einops import rearrange
+from jaxtyping import Float
+from torch import Tensor
+import copy
 
 EPS = 1e-5
 
@@ -40,14 +44,16 @@ def evaluation(iteration, scene : Scene, renderFunc, renderArgs, env_map=None):
         #                     {'name': 'train', 'cameras': traincamera[:num][-eval_train_frame:]+traincamera[num:][-eval_train_frame:]})
         validation_configs = ({'name': 'test', 'cameras': scene.getTestCameras(scale=scale)},
                             {'name': 'train', 'cameras': scene.getTrainCameras()})
-        # kitti_mot only has 2 cameras(Left&Right)
-        num_images = int(len(config['cameras']) / 2)
     else:
         validation_configs = ({'name': 'test', 'cameras': scene.getTestCameras(scale=scale)},
                         {'name': 'train', 'cameras': scene.getTrainCameras()})
-        num_images = int(len(config['cameras']) / 3)
     
     for config in validation_configs:
+        if "kitti" in args.model_path:
+            # kitti_mot only has 2 cameras(Left&Right)
+            num_images = int(len(config['cameras']) / 2)
+        else:
+            num_images = int(len(config['cameras']) / 3)
         if config['cameras'] and len(config['cameras']) > 0:
             l1_test = 0.0
             psnr_test = 0.0
@@ -96,15 +102,15 @@ def evaluation(iteration, scene : Scene, renderFunc, renderArgs, env_map=None):
                 pred_video_left = pred_video[:num_images]
                 pred_video_right = pred_video[num_images:]
                 # render video
-                imageio.mimwrite(os.path.join(outdir, f'{config['name']}_video_rgb_pred_cam2.mp4'), pred_video_left, fps=5, quality=8)
-                imageio.mimwrite(os.path.join(outdir, f'{config['name']}_video_rgb_pred_cam3.mp4'), pred_video_right, fps=5, quality=8)
+                imageio.mimwrite(os.path.join(outdir, f"{config['name']}_video_rgb_pred_cam2.mp4"), pred_video_left, fps=5, quality=8)
+                imageio.mimwrite(os.path.join(outdir, f"{config['name']}_video_rgb_pred_cam3.mp4"), pred_video_right, fps=5, quality=8)
             else:# waymo
                 pred_video_forward = pred_video[:num_images]
                 pred_video_left = pred_video[num_images:2*num_images]
                 pred_video_right = pred_video[2*num_images:]
-                imageio.mimwrite(os.path.join(outdir, f'{config['name']}_video_rgb_pred_forward.mp4'), pred_video_forward, fps=5, quality=8)
-                imageio.mimwrite(os.path.join(outdir, f'{config['name']}_video_rgb_pred_left.mp4'), pred_video_left, fps=5, quality=8)
-                imageio.mimwrite(os.path.join(outdir, f'{config['name']}_video_rgb_pred_right.mp4'), pred_video_right, fps=5, quality=8)
+                imageio.mimwrite(os.path.join(outdir, f"{config['name']}_video_rgb_pred_forward.mp4"), pred_video_forward, fps=5, quality=8)
+                imageio.mimwrite(os.path.join(outdir, f"{config['name']}_video_rgb_pred_left.mp4"), pred_video_left, fps=5, quality=8)
+                imageio.mimwrite(os.path.join(outdir, f"{config['name']}_video_rgb_pred_right.mp4"), pred_video_right, fps=5, quality=8)
 
             psnr_test /= len(config['cameras'])
             l1_test /= len(config['cameras'])
