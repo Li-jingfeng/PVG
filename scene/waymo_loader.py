@@ -4,7 +4,8 @@ from tqdm import tqdm
 from PIL import Image
 from scene.scene_utils import CameraInfo, SceneInfo, getNerfppNorm, fetchPly, storePly
 from utils.graphics_utils import BasicPointCloud
-
+import copy
+from .kittimot_loader import get_pointcloud
 
 def pad_poses(p):
     """Pad [..., 3, 4] pose matrices with a homogeneous bottom row [0,0,0,1]."""
@@ -74,10 +75,32 @@ def readWaymoInfo(args):
         time_duration = [-args.frame_interval*(frame_num-1)/2,args.frame_interval*(frame_num-1)/2]
     else:
         time_duration = args.time_duration
+    # 使用aligned pose
+    # c2ws_read_0 = np.loadtxt(os.path.join(args.source_path, 'depth_0', 'aligned_poses_cam0.txt')).reshape(-1,4,4)
+    # c2ws_read_1 = np.loadtxt(os.path.join(args.source_path, 'depth_0', 'aligned_poses_cam1.txt')).reshape(-1,4,4)
+    # c2ws_read_2 = np.loadtxt(os.path.join(args.source_path, 'depth_0', 'aligned_poses_cam2.txt')).reshape(-1,4,4)
+    # 真值pose
+    # c2ws_read_0 = np.loadtxt(os.path.join(args.source_path, 'depth_0', 'gt_poses_cam0.txt')).reshape(-1,4,4)
+    # c2ws_read_1 = np.loadtxt(os.path.join(args.source_path, 'depth_0', 'gt_poses_cam1.txt')).reshape(-1,4,4)
+    # c2ws_read_2 = np.loadtxt(os.path.join(args.source_path, 'depth_0', 'gt_poses_cam2.txt')).reshape(-1,4,4)
+
+    cam0_2_world = np.loadtxt(os.path.join(args.source_path, 'aligned_poses_cam0.txt')).reshape(-1,4,4)
+    scene_id = args.source_path.split('/')[-1]
+    with open(os.path.join(args.source_path, "calib", scene_id + '.txt')) as f:
+        calib_data = f.readlines()
+        L = [list(map(float, line.split()[1:])) for line in calib_data]
+    lidar_2_cam = np.array(L[-5:]).reshape(-1, 3, 4)
+    lidar_2_cam = pad_poses(lidar_2_cam)
+    cam1_2_cam0 = copy.deepcopy(lidar_2_cam[0] @ np.linalg.inv(lidar_2_cam[1]))
+    cam2_2_cam0 = copy.deepcopy(lidar_2_cam[0] @ np.linalg.inv(lidar_2_cam[2]))
+    
+    cam1_2_world = copy.deepcopy(cam0_2_world) @ cam1_2_cam0
+    cam2_2_world = copy.deepcopy(cam0_2_world) @ cam2_2_cam0
+
 
     for idx, car_id in tqdm(enumerate(car_list), desc="Loading data"):
-        ego_pose = np.loadtxt(os.path.join(args.source_path, 'pose', car_id + '.txt'))
-
+        # 真值ego
+        # ego_pose = np.loadtxt(os.path.join(args.source_path, 'pose', car_id + '.txt'))
         # CAMERA DIRECTION: RIGHT DOWN FORWARDS
         with open(os.path.join(args.source_path, 'calib', car_id + '.txt')) as f:
             calib_data = f.readlines()
@@ -86,8 +109,10 @@ def readWaymoInfo(args):
         lidar2cam = np.array(L[-5:]).reshape(-1, 3, 4)
         lidar2cam = pad_poses(lidar2cam)
 
-        cam2lidar = np.linalg.inv(lidar2cam)
-        c2w = ego_pose @ cam2lidar
+        # cam2lidar = np.linalg.inv(lidar2cam)
+        # c2w = ego_pose @ cam2lidar
+        c2w = np.concatenate([cam0_2_world[idx][None], cam1_2_world[idx][None], cam2_2_world[idx][None]], axis=0)
+        
         w2c = np.linalg.inv(c2w)
         images = []
         image_paths = []
@@ -101,6 +126,17 @@ def readWaymoInfo(args):
             images.append(image)
             image_paths.append(image_path)
 
+        # 加载单目深度图
+        depth_paths = []
+        depths = []
+        for depth_subdir in ['depth_0', 'depth_1', 'depth_2', 'depth_3', 'depth_4'][:args.cam_num]:
+            depth_path = os.path.join(args.source_path, depth_subdir, car_id + '_depth.npy')
+            depth_data = np.load(depth_path).astype(np.float32)
+            depth_data = np.expand_dims(depth_data, -1)
+            depth_ = np.transpose(depth_data, (2, 0, 1)) # c h w
+            depths.append(depth_)
+            depth_paths.append(depth_path)
+
         sky_masks = []
         for subdir in ['sky_0', 'sky_1', 'sky_2', 'sky_3', 'sky_4'][:args.cam_num]:
             sky_data = np.array(Image.open(os.path.join(args.source_path, subdir, car_id + '.png')))
@@ -108,15 +144,33 @@ def readWaymoInfo(args):
             sky_masks.append(sky_mask.astype(np.float32))
 
         timestamp = time_duration[0] + (time_duration[1] - time_duration[0]) * idx / (len(car_list) - 1)
-        point = np.fromfile(os.path.join(args.source_path, "velodyne", car_id + ".bin"),
-                            dtype=np.float32, count=-1).reshape(-1, 6)
-        point_xyz, intensity, elongation, timestamp_pts = np.split(point, [3, 4, 5], axis=1)
-        point_xyz_world = (np.pad(point_xyz, (0, 1), constant_values=1) @ ego_pose.T)[:, :3]
+        # point = np.fromfile(os.path.join(args.source_path, "velodyne", car_id + ".bin"),
+        #                     dtype=np.float32, count=-1).reshape(-1, 6)
+        # point_xyz, intensity, elongation, timestamp_pts = np.split(point, [3, 4, 5], axis=1)
+        # point_xyz_world = (np.pad(point_xyz, (0, 1), constant_values=1) @ ego_pose.T)[:, :3]
+        # 使用随机产生的点云作为point_xyz
+        # point_xyz = np.random.random((point_xyz.shape[0], 3)) * 10.0 - 5.0
+        # point_xyz_world = (np.pad(point_xyz, (0, 1), constant_values=1))[:, :3]
+        # points.append(point_xyz_world)
+        # point_time = np.full_like(point_xyz_world[:, :1], timestamp)
+        # points_time.append(point_time)
+        # 3 cam创建点云
+        point_xyz_t = []
+        for cam_i in range(args.cam_num):
+            depth = depths[cam_i]
+            mask = (depth > 0) # Mask out invalid depth values
+            mask = mask.reshape(-1)
+            color = np.transpose(images[cam_i], (2, 0, 1)) # c h w
+            point, mean3_sq_dist = get_pointcloud(color, depth, Ks[cam_i,:3,:3], w2c[cam_i], 
+                                                mask=mask, compute_mean_sq_dist=True, 
+                                                mean_sq_dist_method="projective")
+            point_xyz_t.append(point[:, :3, 0])
+        point_xyz_world = np.concatenate(point_xyz_t, axis=0)
         points.append(point_xyz_world)
         point_time = np.full_like(point_xyz_world[:, :1], timestamp)
         points_time.append(point_time)
         for j in range(args.cam_num):
-            point_camera = (np.pad(point_xyz, ((0, 0), (0, 1)), constant_values=1) @ lidar2cam[j].T)[:, :3]
+            point_camera = (np.pad(point_xyz_world, ((0, 0), (0, 1)), constant_values=1) @ w2c[j])[:, :3]
             R = np.transpose(w2c[j, :3, :3])  # R is stored transposed due to 'glm' in CUDA code
             T = w2c[j, :3, 3]
             K = Ks[j]
@@ -149,6 +203,7 @@ def readWaymoInfo(args):
     w2cs[:, :3, 3] = Ts
     w2cs[:, 3, 3] = 1
     c2ws = unpad_poses(np.linalg.inv(w2cs))
+    # cam_info中的R,t跟上面c2ws一致
     c2ws, transform, scale_factor = transform_poses_pca(c2ws, fix_radius=args.fix_radius)
 
     c2ws = pad_poses(c2ws)
@@ -181,14 +236,18 @@ def readWaymoInfo(args):
 
     ply_path = os.path.join(args.source_path, "points3d.ply")
     if not os.path.exists(ply_path):
+        # 这里是单目深度点云
         rgbs = np.random.random((pointcloud.shape[0], 3))
         storePly(ply_path, pointcloud, rgbs, pointcloud_timestamp)
-    try:
-        pcd = fetchPly(ply_path)
-    except:
-        pcd = None
+        pcd = BasicPointCloud(pointcloud, colors=np.zeros([pointcloud.shape[0],3]), normals=None, time=pointcloud_timestamp)
+        # 随机初始化
+        # num_pts = 600_000
+        # rgbs = np.random.random((num_pts, 3))
+        # pointcloud_random = np.random.random((num_pts, 3)) * 20.0 - 10.0
+        # storePly(ply_path, pointcloud_random, rgbs, pointcloud_timestamp)
+        # pcd = BasicPointCloud(pointcloud_random, colors=np.zeros([num_pts, 3]), normals=None, time=pointcloud_timestamp)
 
-    pcd = BasicPointCloud(pointcloud, colors=np.zeros([pointcloud.shape[0],3]), normals=None, time=pointcloud_timestamp)
+    
     time_interval = (time_duration[1] - time_duration[0]) / (len(car_list) - 1)
 
     scene_info = SceneInfo(point_cloud=pcd,

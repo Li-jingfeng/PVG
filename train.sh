@@ -132,3 +132,64 @@ source_path=data/kitti_mot/training/image_02/0002 \
 model_path=eval_output/kitti_nvs/0002_debug_vo_poses_depthanything \
 start_frame=121 \
 end_frame=221
+
+# 原版对于0002和0006有推荐序列，vo-aligned poses+depthanything
+CUDA_VISIBLE_DEVICES=2 python train.py \
+--config configs/kitti_nvs.yaml \
+source_path=data/kitti_mot/training/image_02/0002 \
+model_path=eval_output/kitti_nvs/0002_original_split \
+start_frame=140 \
+end_frame=224
+CUDA_VISIBLE_DEVICES=3 python train.py \
+--config configs/kitti_nvs.yaml \
+source_path=data/kitti_mot/training/image_02/0006 \
+model_path=eval_output/kitti_nvs/0006_original_split \
+start_frame=65 \
+end_frame=120
+
+# 0001 0002 0006序列，使用对齐的pose和dynamo depth（no align）
+CUDA_VISIBLE_DEVICES=2 python train.py \
+--config configs/kitti_nvs.yaml \
+source_path=data/kitti_mot/training/image_02/0001 \
+model_path=eval_output/kitti_nvs/0001_original_split_dynamo \
+start_frame=380 \
+end_frame=431 \
+lambda_lidar=0
+CUDA_VISIBLE_DEVICES=3 python train.py \
+--config configs/kitti_nvs.yaml \
+source_path=data/kitti_mot/training/image_02/0002 \
+model_path=eval_output/kitti_nvs/0002_original_split_dynamo \
+start_frame=140 \
+end_frame=224 \
+lambda_lidar=0
+CUDA_VISIBLE_DEVICES=1 python train.py \
+--config configs/kitti_nvs.yaml \
+source_path=data/kitti_mot/training/image_02/0006 \
+model_path=eval_output/kitti_nvs/0006_original_split_dynamo \
+start_frame=65 \
+end_frame=120 \
+lambda_lidar=0
+# 0001序列，使用对齐的pose和dynamo depth（no align）
+CUDA_VISIBLE_DEVICES=3 python train.py \
+--config configs/kitti_nvs.yaml \
+source_path=data/kitti_mot/training/image_02/0001 \
+model_path=eval_output/kitti_nvs/0001_original_split_dynamo_old \
+start_frame=380 \
+end_frame=431 \
+lambda_lidar=0
+
+# 0002序列，使用没有对齐的pose和dynamo depth（no align） 
+# 没有对齐的pose用什么深度都没用
+CUDA_VISIBLE_DEVICES=1 python train.py \
+--config configs/kitti_nvs.yaml \
+source_path=data/kitti_mot/training/image_02/0002 \
+model_path=eval_output/kitti_nvs/0002_original_split_dynamo \
+start_frame=140 \
+end_frame=224
+# 点云随机初始化
+CUDA_VISIBLE_DEVICES=1 python train.py \
+--config configs/kitti_nvs.yaml \
+source_path=data/kitti_mot/training/image_02/0002 \
+model_path=eval_output/kitti_nvs/0002_original_split_random \
+start_frame=140 \
+end_frame=224

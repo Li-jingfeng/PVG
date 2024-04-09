@@ -84,7 +84,7 @@ def evaluation(iteration, scene : Scene, renderFunc, renderArgs, env_map=None):
             outdir = os.path.join(args.model_path, "eval", config['name'] + f"_{iteration}" + "_render")
             os.makedirs(outdir,exist_ok=True)
 
-            viewpoint_a = config['cameras'][20]
+            viewpoint_a = config['cameras'][20]`
             viewpoint_b = config['cameras'][21]
             origin_a = torch.tensor(viewpoint_a.T)
             origin_b = torch.tensor(viewpoint_b.T)

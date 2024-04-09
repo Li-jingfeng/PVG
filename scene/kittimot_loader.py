@@ -493,9 +493,18 @@ def get_scene_images_tracking(tracking_path, sequence, selected_frames):
     # 对齐后的深度图.npy
     # left_depth_path = os.path.join(os.path.join(tracking_path, "depth_02"), sequence, "Lidar_DAnything_png")
     # right_depth_path = os.path.join(os.path.join(tracking_path, "depth_03"), sequence, "Lidar_DAnything_png")
-    # 没有对齐的深度图，结果经过处理
-    left_depth_path = os.path.join(os.path.join(tracking_path, "depth_02"), sequence, "DAnything", "disp_png")
-    right_depth_path = os.path.join(os.path.join(tracking_path, "depth_03"), sequence, "DAnything", "disp_png")
+    # 没有对齐的深度图，结果经过处理 这个结果挺好
+    # left_depth_path = os.path.join(os.path.join(tracking_path, "depth_02"), sequence, "DAnything", "disp_png")
+    # right_depth_path = os.path.join(os.path.join(tracking_path, "depth_03"), sequence, "DAnything", "disp_png")
+    # dynamo depth npy没有做任何处理
+    left_depth_path = os.path.join(os.path.join(tracking_path, "depth_02"), sequence, "dynamo")
+    right_depth_path = os.path.join(os.path.join(tracking_path, "depth_03"), sequence, "dynamo")
+    # for debug
+    # left_depth_path = os.path.join(os.path.join(tracking_path, "depth_02"), sequence, "DAnything", "disp_png")
+    # right_depth_path = os.path.join(os.path.join(tracking_path, "depth_03"), sequence, "DAnything", "disp_png")
+    # disp这个dir已经无法使用
+    # left_depth_path = os.path.join(os.path.join(tracking_path, "depth_02"), sequence, "disp")
+    # right_depth_path = os.path.join(os.path.join(tracking_path, "depth_03"), sequence, "disp")
     
     for frame_dir in [left_depth_path, right_depth_path]:
         files_path = glob.glob(os.path.join(frame_dir, "*.npy"))
@@ -620,6 +629,9 @@ def readKittiMotInfo(args):
     if "kitti_mot" in args.source_path:
         cam_poses_tracking_cam2 = np.loadtxt(f"/data/ljf/PVG/data/kitti_mot/training/depth_02/{scene_id}/aligned_poses_cam2.txt").reshape(-1, 4, 4)[first_frame:last_frame+1]
         cam_poses_tracking_cam3 = np.loadtxt(f"/data/ljf/PVG/data/kitti_mot/training/depth_02/{scene_id}/aligned_poses_cam3.txt").reshape(-1, 4, 4)[first_frame:last_frame+1]
+
+        # cam_poses_tracking_cam2 = np.loadtxt(f"/data/ljf/PVG/data/kitti_mot/training/depth_02/{scene_id}/aligned_poses_cam2.txt").reshape(-1, 4, 4)[first_frame:last_frame+1]
+        # cam_poses_tracking_cam3 = np.loadtxt(f"/data/ljf/PVG/data/kitti_mot/training/depth_02/{scene_id}/aligned_poses_cam3.txt").reshape(-1, 4, 4)[first_frame:last_frame+1]
         # cam_poses_tracking_cam3 = np.loadtxt("/data/ljf/PVG/data/kitti_mot/training/depth_02/0001/new_aligned_poses_0001_cam3.txt").reshape(-1, 4, 4)[first_frame:last_frame+1]
     cam_poses_tracking = np.concatenate([cam_poses_tracking_cam2, cam_poses_tracking_cam3], axis=0)
     # L2W
@@ -753,17 +765,22 @@ def readKittiMotInfo(args):
     nerf_normalization['radius'] = 1
 
     ply_path = os.path.join(args.source_path, "points3d.ply")
+
     if not os.path.exists(ply_path):
+    # 原本
+    #     rgbs = np.random.random((pointcloud.shape[0], 3))
+    #     storePly(ply_path, pointcloud, rgbs, pointcloud_timestamp)
+    #     pcd = fetchPly(ply_path)
+    # 随机生成点云用
+        num_pts = 1_000_000
+        print(f"Generating random point cloud ({num_pts})...")
+        # We create random points inside the bounds of the synthetic Blender scenes
+        pointcloud = np.random.random((num_pts, 3)) * 2.6 - 1.3
+        # pointcloud = np.random.random((num_pts, 3)) * 160 - 80
         rgbs = np.random.random((pointcloud.shape[0], 3))
         storePly(ply_path, pointcloud, rgbs, pointcloud_timestamp)
         pcd = fetchPly(ply_path)
-    # try:
-    #     pcd = fetchPly(ply_path)
-    # except:
-    #     pcd = None
-
     time_interval = (time_duration[1] - time_duration[0]) / (frame_num - 1)
-
 
     scene_info = SceneInfo(point_cloud=pcd,
                            train_cameras=train_cam_infos,
@@ -773,3 +790,4 @@ def readKittiMotInfo(args):
                            time_interval=time_interval)
 
     return scene_info
+

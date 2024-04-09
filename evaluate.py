@@ -105,9 +105,9 @@ def evaluation(iteration, scene : Scene, renderFunc, renderArgs, env_map=None):
                 imageio.mimwrite(os.path.join(outdir, f"{config['name']}_video_rgb_pred_cam2.mp4"), pred_video_left, fps=5, quality=8)
                 imageio.mimwrite(os.path.join(outdir, f"{config['name']}_video_rgb_pred_cam3.mp4"), pred_video_right, fps=5, quality=8)
             else:# waymo
-                pred_video_forward = pred_video[:num_images]
-                pred_video_left = pred_video[num_images:2*num_images]
-                pred_video_right = pred_video[2*num_images:]
+                pred_video_forward = pred_video[0::3]
+                pred_video_left = pred_video[1::3]
+                pred_video_right = pred_video[2::3]
                 imageio.mimwrite(os.path.join(outdir, f"{config['name']}_video_rgb_pred_forward.mp4"), pred_video_forward, fps=5, quality=8)
                 imageio.mimwrite(os.path.join(outdir, f"{config['name']}_video_rgb_pred_left.mp4"), pred_video_left, fps=5, quality=8)
                 imageio.mimwrite(os.path.join(outdir, f"{config['name']}_video_rgb_pred_right.mp4"), pred_video_right, fps=5, quality=8)
